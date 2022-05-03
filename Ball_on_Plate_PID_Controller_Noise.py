@@ -5,6 +5,7 @@ from adafruit_servokit import ServoKit
 import numpy as np 
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
+import pandas as pd
 
 #Touchscreen Initialization
 def touchScreen_init(): 
@@ -49,7 +50,7 @@ def pid(sp, cv, pv, iErr, dt):
     iErr = iErr + KI*err*dt
     dErr = (cv - pv)/dt
 
-    u = KP*err + KI*iErr + KD*dErr
+    u = KP*err + KI*iErr - KD*dErr
 
     return u
 
@@ -101,6 +102,9 @@ time.sleep(0.1)
 current_time = time.time()
 dt = current_time - start_time
 
+n = 10000
+Data = np.zeros((n,3))
+
 
 while True:
   try:
@@ -122,8 +126,8 @@ while True:
         fmx = Mx
         fmy = My 
       #Add Filtered data to the array 
-      fMx = np.append(fMx, fmx[-3])
-      fMy = np.append(fMy, fmy[-3]) 
+      fMx = np.append(fMx, fmx[-5])
+      fMy = np.append(fMy, fmy[-5]) 
         
       #PID Computation
       ux = pid(SP[i], fMx[i], fMx[max(0,i-1)], iErr, dt)
@@ -168,6 +172,9 @@ while True:
     #print('Time','Servo', 'Ball Position', 'Setpoint')
     #print(i, f'{Uy[i]:2.2f},{My[i]:2.2f},{SP[i]:2.2f}')
     i = i + 1
+    Data[i,0] = dt
+    Data[i,1] = x
+    Data[i,2] = y
   except KeyboardInterrupt:
     #Plots
     plt.figure(figsize= (15,10))
@@ -191,6 +198,7 @@ while True:
     plt.legend(['Control Signal'])
 
     plt.show()
+    pd.DataFrame(Data).to_csv('Data.csv')
 
 
     
