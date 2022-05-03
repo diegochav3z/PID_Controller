@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 
 
+
+
 #Touchscreen Initialization
 def touchScreen_init(): 
   dev = usb.core.find(idVendor = 0x04d8, idProduct = 0x0c02)
@@ -64,20 +66,7 @@ tauI = 0.1
 tauD = 0.1
 iErr = 0 
 dt = 0.01
-tm = np.linspace(0, n-1, n) # timestamp
-Mx = np.zeros(n)
-My = np.zeros(n)
-Ux = np.zeros(n) 
-Uy = np.zeros(n)
-SP = np.zeros(n)
-fMx = np.zeros(n) 
-fMy = np.zeros(n)
-[dev, ep_in, ep_out] = touchScreen_init()
-kit = ServoKit(channels = 16)
-kit.servo[0].angle = 90
-kit.servo[2].angle = 90 
-
-#Setup variables for the noise filter 
+#Initial Setup Values for the noise filter
 T = dt
 fs = 20 # sample rate Hz
 cutoff = 2 
@@ -85,58 +74,71 @@ nyq = 0.5 * fs
 order = 2 
 windowSize = 10
 n = 1000*windowSize
+tm = np.array([])
+Mx = np.array([])
+My = np.zeros([])
+fMx = np.zeros(windowSize)
+fMy = np.zeros(windowSize)
+SP =  np.zeros(windowSize)
+
+Ux = np.zeros(n) 
+Uy = np.zeros(n)
+
+[dev, ep_in, ep_out] = touchScreen_init()
+kit = ServoKit(channels = 16)
+kit.servo[0].angle = 90
+kit.servo[2].angle = 90 
 
 
 
-
-start_time = time.time()
-#filtered data 
+#Butterworth Filter 
 normal_cutoff = cutoff/nyq 
 b, a = butter(order, normal_cutoff, btype = 'low', analog = False)
 
-#Obtain Data
+i = 0
+#Initial computation of dt 
+start_time = time.time()
+time.sleep(0.1)
+current_time = time.time()
+dt = current_time - start_time
+
+
 while True:
+  start_time = time.time()
   #Read touchscreen Data
-  [Mx[i],My[i]] = touchScreen_data(dev, ep_in, ep_out) # Read the touchscreen
-
-for i in range(n):
-  if n >= windowSize:
-    for ii in range(windowSize):
+  x, y = touchScreen_data(dev, ep_in, ep_out) # Read the touchscreen
+  Mx = np.append(Mx, x)
+  My = np.append(My, y)
+  if i >= windowSize: 
+    fmy = filtfilt(b, a, Mx[-windowSize:])
+    fmx = filtfilt(b, a, My[-windowSize:])
+    #Filter the new data
+    fMx = np.append(fMx, fmx)
+    fMy = np.append(fMy, fmy)
+    #PID Computation
+    Ux[i] = pid(SP[i], fMx[i], fMx[max(0,i-1)], iErr, dt)
+    Uy[i] = pid(SP[i], fMy[i], fMy[max(0,i-1)], iErr, dt)
+    #dt calculation
+    current_time = time.time()
+    dt = current_time - start_time
+    #Servo signal X 
+    if Ux[i] >= 0: 
+      kit.servo[2].angle = 1*Ux[i]*90+90
+    elif Ux[i] < 0:
+      kit.servo[2].angle = 1*Ux[i]*90+90
+    #Servo Signal Y
+    if Uy[i] < 0:
+      kit.servo[0].angle = 1*Uy[i]*90+90
+    elif Uy[i] >= 0:
+      kit.servo[0].angle = 1*Uy[i]*90+90
       
 
+  SP = np.append(SP, 0)
+  i = i + 1
+  print('Time','Servo', 'Ball Position', 'Setpoint')
+  print(dt, f'{Uy[i]:2.2f},{My[i]:2.2f},{SP[i]:2.2f}')
 
-
-    current_time = time.time() 
-
-    Uy[i] = pid(SP[i], My[i], My[max(0,i-1)], iErr, dt)
-    Ux[i] = pid(SP[i], Mx[i], Mx[max(0,i-1)], iErr, dt)
-    print(Uy[i],Ux[i])
-
-    fUy = filtfilt(b, a, Uy[i], axis = 0)
-    fUx = filtfilt(b, a, Ux[i], axis = 0)
-    print(fUx)
-      
-      # if Ux[i] >= 0: 
-      #     kit.servo[2].angle = 1*Ux[i]*90+90
-      # elif Ux[i] < 0:
-      #     kit.servo[2].angle = 1*Ux[i]*90+90
-      
-      # if Uy[i] < 0:
-      #     kit.servo[0].angle = 1*Uy[i]*90+90
-      # elif Uy[i] >= 0:
-      #     kit.servo[0].angle = 1*Uy[i]*90+90
-
-      #kit.servo[2].angle = U[i]
-
-      
-
-    elapsed_time = current_time - start_time
-    start_time = current_time
-    #print('Time','Servo', 'Ball Position', 'Setpoint')
-    #print(elapsed_time, f'{Uy[i]:2.2f},{My[i]:2.2f},{SP[i]:2.2f}')
-  time.sleep(dt)
-
-
+#Plots
 plt.figure(figsize= (15,10))
 plt.rcParams.update({'font.size': 14})
 plt.plot(tm, Uy, linewidth = 1.0)
