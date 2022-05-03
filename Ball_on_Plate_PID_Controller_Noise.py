@@ -1,4 +1,3 @@
-from asyncio import windows_utils
 import usb.core
 import usb.util 
 import time 
@@ -6,9 +5,6 @@ from adafruit_servokit import ServoKit
 import numpy as np 
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
-
-
-
 
 #Touchscreen Initialization
 def touchScreen_init(): 
@@ -27,7 +23,6 @@ def touchScreen_init():
     dev.detach_kernel_driver(intf)
     usb.util.claim_interface(dev, intf)
   return dev, ep_in, ep_out
-
   
 def touchScreen_data(dev, ep_in, ep_out):
   #Screen constants 
@@ -48,7 +43,7 @@ def pid(sp, cv, pv, iErr, dt):
     #K Values
     KD = 0.05
     KI = 0.0
-    KP = 0.4
+    KP = 0.6
 
     err = sp - pv 
     iErr = iErr + KI*err*dt
@@ -58,9 +53,7 @@ def pid(sp, cv, pv, iErr, dt):
 
     return u
 
-
-
-#Initial Setup Values
+#Initial Setup Values for the PID
 Kc = 5
 tauI = 0.1
 tauD = 0.1
@@ -69,31 +62,37 @@ dt = 0.01
 #Initial Setup Values for the noise filter
 T = dt
 fs = 20 # sample rate Hz
-cutoff = 2 
+cutoff = 8
 nyq = 0.5 * fs 
-order = 2 
-windowSize = 10
+order = 3
+#Initial setup variables for the process
+windowSize = 15
 n = 1000*windowSize
 tm = np.array([])
 Mx = np.array([])
 My = np.zeros([])
 fMx = np.zeros(windowSize)
 fMy = np.zeros(windowSize)
-SP =  np.zeros(windowSize)
+SP = np.zeros(windowSize)
+Ux = np.zeros(windowSize)
+Uy = np.zeros(windowSize)
 
-Ux = np.zeros(n) 
-Uy = np.zeros(n)
-
+#Initialization of the touchscreen adn the servos
 [dev, ep_in, ep_out] = touchScreen_init()
 kit = ServoKit(channels = 16)
 kit.servo[0].angle = 90
 kit.servo[2].angle = 90 
 
-
-
-#Butterworth Filter 
+#Flags for filters and Servos
+control = True 
+convFilter_u = False
+convFilter_m = False  
+butterFilt = False  
+butterFilt_u = True 
+#Butterworth Filter Setup 
 normal_cutoff = cutoff/nyq 
-b, a = butter(order, normal_cutoff, btype = 'low', analog = False)
+normal_cutoff = 0.1
+b, a = butter(order, 0.1, btype = 'low')
 
 i = 0
 #Initial computation of dt 
@@ -104,53 +103,98 @@ dt = current_time - start_time
 
 
 while True:
-  start_time = time.time()
-  #Read touchscreen Data
-  x, y = touchScreen_data(dev, ep_in, ep_out) # Read the touchscreen
-  Mx = np.append(Mx, x)
-  My = np.append(My, y)
-  if i >= windowSize: 
-    fmy = filtfilt(b, a, Mx[-windowSize:])
-    fmx = filtfilt(b, a, My[-windowSize:])
-    #Filter the new data
-    fMx = np.append(fMx, fmx)
-    fMy = np.append(fMy, fmy)
-    #PID Computation
-    Ux[i] = pid(SP[i], fMx[i], fMx[max(0,i-1)], iErr, dt)
-    Uy[i] = pid(SP[i], fMy[i], fMy[max(0,i-1)], iErr, dt)
-    #dt calculation
-    current_time = time.time()
-    dt = current_time - start_time
-    #Servo signal X 
-    if Ux[i] >= 0: 
-      kit.servo[2].angle = 1*Ux[i]*90+90
-    elif Ux[i] < 0:
-      kit.servo[2].angle = 1*Ux[i]*90+90
-    #Servo Signal Y
-    if Uy[i] < 0:
-      kit.servo[0].angle = 1*Uy[i]*90+90
-    elif Uy[i] >= 0:
-      kit.servo[0].angle = 1*Uy[i]*90+90
-      
+  try:
+    start_time = time.time()
+    #Read touchscreen Data
+    x, y = touchScreen_data(dev, ep_in, ep_out) # Read the touchscreen
+    Mx = np.append(Mx, x)
+    My = np.append(My, y)
+    if i >= windowSize: 
+      if convFilter_m == True:
+        box_pts = windowSize
+        box = np.ones(box_pts)/(box_pts)
+        fmx = np.convolve(Mx[-windowSize:], box, mode = 'same')
+        fmy = np.convolve(My[-windowSize:], box, mode = 'same')
+      elif butterFilt == True: 
+        fmx = filtfilt(b, a, Mx[-windowSize:])
+        fmy = filtfilt(b, a, My[-windowSize:])
+      else:
+        fmx = Mx
+        fmy = My 
+      #Add Filtered data to the array 
+      fMx = np.append(fMx, fmx[-3])
+      fMy = np.append(fMy, fmy[-3]) 
+        
+      #PID Computation
+      ux = pid(SP[i], fMx[i], fMx[max(0,i-1)], iErr, dt)
+      uy = pid(SP[i], fMy[i], fMy[max(0,i-1)], iErr, dt)
+      #Wrap up of values within the limits
+      if ux > 1.1 or ux < -1.1:
+        ux = 1 
+      if uy > 1.1 or uy < -1.1: 
+        uy = 1
+      Ux = np.append(Ux, ux)
+      Uy = np.append(Uy, uy)
 
-  SP = np.append(SP, 0)
-  i = i + 1
-  print('Time','Servo', 'Ball Position', 'Setpoint')
-  print(dt, f'{Uy[i]:2.2f},{My[i]:2.2f},{SP[i]:2.2f}')
+      if convFilter_u == True:
+        box_pts = windowSize
+        box = np.ones(box_pts)/(box_pts)
+        Ux[i] = np.convolve(Ux[-windowSize:], box, mode = 'same')[-1:]
+        Uy[i] = np.convolve(Uy[-windowSize:], box, mode = 'same')[-1:]
+      if butterFilt_u == True: 
+        Ux[i] = filtfilt(b, a, Ux[-windowSize:])[-5]
+        Uy[i] = filtfilt(b, a, Uy[-windowSize:])[-5]
+         
 
-#Plots
-plt.figure(figsize= (15,10))
-plt.rcParams.update({'font.size': 14})
-plt.plot(tm, Uy, linewidth = 1.0)
-plt.plot(tm, Ux, linestyle = 'dashed',linewidth = 1.0)
+      #dt calculation
+      current_time = time.time()
+      dt = current_time - start_time
+      if control == True: 
+        #Servo signal X 
+        if Ux[i] >= 0: 
+          kit.servo[2].angle = 1*Ux[i]*90+90
+        elif Ux[i] < 0:
+          kit.servo[2].angle = 1*Ux[i]*90+90
+        #Servo Signal Y
+        if Uy[i] < 0:
+          kit.servo[0].angle = 1*Uy[i]*90+90
+        elif Uy[i] >= 0:
+          kit.servo[0].angle = 1*Uy[i]*90+90
+        
+    SP = np.append(SP, 0)
+    tm = np.append(tm, i)
+    print(i)
 
-ax = plt.gca()
-plt.xlabel('Timestep', fontsize = 24)
-plt.ylabel('Angle (degrees)', fontsize = 24)
-plt.grid(True)
-plt.legend(['CF roll angle', 'Accelerometer based roll angle', 'Gyroscope based roll angle'])
-plt.savefig('CF_VS_ROLL.png')
-plt.show()
+    #print('Time','Servo', 'Ball Position', 'Setpoint')
+    #print(i, f'{Uy[i]:2.2f},{My[i]:2.2f},{SP[i]:2.2f}')
+    i = i + 1
+  except KeyboardInterrupt:
+    #Plots
+    plt.figure(figsize= (15,10))
+    plt.rcParams.update({'font.size': 14})
+    plt.plot(tm, fMx[:tm.shape[0]], linewidth = 1.0)
+    plt.plot(tm, Mx[:tm.shape[0]], linestyle = 'dashed',linewidth = 1.0)
+    plt.plot(tm, Ux[:tm.shape[0]], linewidth = 1.0)
+    ax = plt.gca()
+    plt.xlabel('Timestep', fontsize = 24)
+    plt.ylabel('Value', fontsize = 24)
+    plt.grid(True)
+    plt.legend(['filtered', 'Raw', 'Control'])
+
+    plt.figure(figsize= (15,10))
+    plt.rcParams.update({'font.size': 14})
+    plt.plot(tm, Ux[:tm.shape[0]], linewidth = 1.0)
+    ax = plt.gca()
+    plt.xlabel('Timestep', fontsize = 24)
+    plt.ylabel('Value', fontsize = 24)
+    plt.grid(True)
+    plt.legend(['Control Signal'])
+
+    plt.show()
+
+
+    
+
 
 
 
