@@ -108,13 +108,13 @@ Data = np.zeros((n,3))
 
 start_time = time.time()
 for i in range(n):
-    #Read touchscreen Data
-    x, y = touchScreen_data(dev, ep_in, ep_out)
-    current_time = time.time()
-    dt = current_time - start_time
-    Data[i,0] = dt
-    Data[i,1] = x
-    Data[i,2] = y
+  #Read touchscreen Data
+  x, y = touchScreen_data(dev, ep_in, ep_out)
+  current_time = time.time()
+  dt = current_time - start_time
+  Data[i,0] = dt
+  Data[i,1] = x
+  Data[i,2] = y
 
 
 pd.DataFrame(Data).to_csv('Data.csv')

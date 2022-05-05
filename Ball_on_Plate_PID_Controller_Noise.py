@@ -42,9 +42,9 @@ def touchScreen_data(dev, ep_in, ep_out):
 
 def pid(sp, cv, pv, iErr, dt):
     #K Values
-    KD = 0.05
+    KD = 0.1
     KI = 0.0
-    KP = 0.6
+    KP = 1.5
 
     err = sp - pv 
     iErr = iErr + KI*err*dt
