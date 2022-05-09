@@ -40,8 +40,11 @@ def touchScreen_data(dev, ep_in, ep_out):
 
   return [X_coordinate, Y_coordinate]
 
-def pid(sp, cv, pv, iErr, dt, KD, KI, KP):
+def pid(sp, cv, pv, iErr, dt):
     #K Values
+    KD = 0.1
+    KI = 0.0
+    KP = 0.8
 
     err = sp - pv 
     iErr = iErr + KI*err*dt
@@ -138,15 +141,8 @@ while True:
       fMy = np.append(fMy, mmmfy) 
         
       #PID Computation
-      KD_x = 0.05
-      KI_x = 0.0
-      KP_x = 0.4
-
-      KD_y = 0.05
-      KI_y = 0.0
-      KP_y = 0.35
-      ux = pid(SP[i], fMx[i], fMx[max(0,i-1)], iErr, dt, KD_x, KI_x, KP_x)
-      uy = pid(SP[i], fMy[i], fMy[max(0,i-1)], iErr, dt, KD_y, KI_y, KP_y)
+      ux = pid(SP[i], fMx[i], fMx[max(0,i-1)], iErr, dt)
+      uy = pid(SP[i], fMy[i], fMy[max(0,i-1)], iErr, dt)
       #Wrap up of values within the limits
       if ux > 1.1 or ux < -1.1:
         ux = 1 
@@ -174,7 +170,7 @@ while True:
       #dt calculation
       current_time = time.time()
       dt = current_time - start_time
-      if control == True and i%1 == 0: 
+      if control == True and i%30 == 0: 
         #Servo signal X 
         if Sx[i] >= 0: 
           kit.servo[2].angle = 1*Sx[i]*90+90
